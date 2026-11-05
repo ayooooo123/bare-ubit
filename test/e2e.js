@@ -108,7 +108,7 @@ await check('addresses: only globally routable unicast passes', () => {
     'fd00::1': false, 'ff02::1': false, '::ffff:127.0.0.1': false, '::ffff:10.0.0.1': false,
     '64:ff9b::a00:1': false, '2002:7f00:1::': false, '2001:db8::1': false, 'not-an-ip': false,
     '64:ff9b:1::1': false, '64:ff9b:1:ffff:ffff:ffff:ffff:ffff': false, '3fff::1': false, '3fff:fff:ffff::1': false,
-    '5f00::1': false, '64:ff9b::808:808': true
+    '5f00::1': false, '64:ff9b::808:808': true, '100::1': false, '100:0:0:1::1': false
   }
   for (const [ip, want] of Object.entries(cases)) assert.equal(isPublicAddress(ip), want, ip)
 })
