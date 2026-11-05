@@ -1,0 +1,59 @@
+# bare-ubit
+
+[uBit](https://github.com/ayooooo123/ubit), the web video downloader, compiled to WebAssembly and run in a sandbox under [Bare](https://github.com/holepunchto/bare).
+
+uBit reads pages and streams from anywhere. Here its extractors, HLS/DASH parsers and MP4 muxer run inside `ubit.wasm`. The module can reach only what the host hands it:
+
+- **Files:** its config folder (`/config`) and, if given, one output folder (`/out`). Absolute paths, `..` above either folder, and symlinks leading out are refused.
+- **Network:** the module asks for a host and port. The host resolves the name and connects only if every address is globally routable (no loopback, private, link-local, CGNAT, multicast or documentation ranges, judged through IPv4-mapped, NAT64 and 6to4 forms). The check runs on every connection, so a redirect to a private address is refused too. TLS is done by the host and verifies certificates against Mozilla's roots.
+- **Environment:** none of the host's. The module sees `HOME=/config` and `UBIT_CONFIG_DIR=/config`.
+- **Memory:** capped by the host (`maxMemory`, default 4 GiB, the wasm32 limit). A module over its cap fails on its own.
+
+Needs Bare 1.36 or later: the module's blocking reads and sleeps suspend through JS Promise Integration, which Node 24 does not enable.
+
+## CLI
+
+```sh
+bare-ubit [--config DIR] [--allow-private] <ubit arguments>
+bare-ubit info --json 'https://www.youtube.com/watch?v=aqz-KE-bpKQ'
+bare-ubit get --no-library --json -o ./downloads 'https://www.youtube.com/watch?v=aqz-KE-bpKQ'
+```
+
+Same commands, flags, NDJSON events and exit codes as `ubit`; paths in its output are host paths. The config folder defaults to `$UBIT_CONFIG_DIR`, else `~/.config/uBit`. Without `-o`, `get` saves to `~/Downloads`. No other host path is reachable, so flags that name a file elsewhere will not find it.
+
+## API
+
+```js
+import { run } from 'bare-ubit'
+
+const code = await run(['get', url, '--no-library', '--json', '-o', '/out'], {
+  config: '/path/to/config', // seen as /config
+  out: '/path/to/output', // seen as /out
+  stdout: (bytes) => {}, // default: fd 1
+  stderr: (bytes) => {}, // default: fd 2
+  allowAddress: (ip) => isPublicAddress(ip),
+  onrefuse: (host, addresses) => {},
+  maxMemory: 4 * 1024 ** 3
+})
+```
+
+To stop a run that will not finish, run the CLI as a child process and end it: code inside the module cannot be interrupted from its own thread.
+
+## Limits of this build
+
+- One connection at a time (the module has no threads): a full download took 57 s here against 24 s for native `ubit`.
+- No ffmpeg, so `--to mp3/opus/mkv/webm` and WebM sources fail; MP4 and M4A mux natively.
+- No proxy; a configured proxy makes requests fail rather than bypass it.
+- uBit reads a file it muxes whole, so a single track over the memory cap fails.
+
+## Build
+
+`ubit.wasm` comes from uBit's `linux/build_wasm.sh` (wasi-sdk 34). Copy `dist/ubit.wasm` here.
+
+## Test
+
+```sh
+npm test # needs ffmpeg and ffprobe; writes test/e2e-result.json
+```
+
+Address policy, the folder jail (including a symlink out), a refused private address and redirect, a direct MP4, AES-128 HLS decrypted and muxed, and a memory cap that fails only its own run.
