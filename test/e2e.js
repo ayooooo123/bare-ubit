@@ -49,6 +49,13 @@ sh('ffmpeg', ['-y', '-v', 'error', ...src, ...enc, '-f', 'hls', '-hls_time', '1'
 // About 30 MB of segments: more than the 24 MiB memory cap used below.
 sh('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=duration=8:size=1920x1080:rate=30', '-c:v', 'libx264', '-preset', 'ultrafast', '-b:v', '30M', '-maxrate', '30M', '-bufsize', '30M',
   '-f', 'hls', '-hls_time', '2', '-hls_playlist_type', 'vod', '-hls_segment_filename', path.join(fixtures, 'big', 'seg%03d.ts'), path.join(fixtures, 'big', 'index.m3u8')])
+// Split VP9 video.webm + Opus audio.webm and lossless FLAC passthrough.
+sh('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc=duration=2:size=640x360:rate=24', '-c:v', 'libvpx-vp9', '-b:v', '400k', '-an', path.join(fixtures, 'video.webm')])
+sh('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2:sample_rate=48000', '-ac', '2', '-c:a', 'libopus', '-b:a', '96k', '-vn', path.join(fixtures, 'audio.webm')])
+sh('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=660:duration=2:sample_rate=44100', '-ac', '2', '-c:a', 'flac', path.join(fixtures, 'track.flac')])
+fs.writeFileSync(path.join(fixtures, 'v-webm.m3u8'), '#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXTINF:2.0,\n/video.webm\n#EXT-X-ENDLIST\n')
+fs.writeFileSync(path.join(fixtures, 'a-webm.m3u8'), '#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXTINF:2.0,\n/audio.webm\n#EXT-X-ENDLIST\n')
+fs.writeFileSync(path.join(fixtures, 'split-webm.m3u8'), '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="Opus",DEFAULT=YES,URI="/a-webm.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=600000,RESOLUTION=640x360,AUDIO="aud"\n/v-webm.m3u8\n')
 
 const server = http.createServer((req, res) => {
   const url = req.url.split('?')[0]
@@ -176,6 +183,32 @@ await check('download: AES-128 HLS is decrypted and muxed to MP4', async () => {
   assert.ok(Math.abs(got.duration - 4) < 0.3, JSON.stringify(got))
   // Every picture decodes: wrong AES output would corrupt the transport stream.
   sh('ffmpeg', ['-v', 'error', '-xerror', '-i', path.join(r.out, done.path.slice(5)), '-f', 'null', '-'])
+  return { file: done.path, size: done.size, ...got }
+})
+
+await check('download: split VP9 + Opus WebM muxes natively without ffmpeg', async () => {
+  const r = await ubit(['get', base + '/split-webm.m3u8', '--no-library', '--json', '-o', '/out'], { allowAddress: onlyLoopback })
+  assert.equal(r.code, 0, JSON.stringify(r.events.at(-1)))
+  const done = r.events.find(e => e.event === 'done')
+  assert.ok(done && done.path.endsWith('.webm'), JSON.stringify(done))
+  const hostFile = path.join(r.out, done.path.slice(5))
+  const got = probe(hostFile)
+  same(got.streams, ['audio:opus', 'video:vp9'])
+  assert.ok(Math.abs(got.duration - 2) < 0.3, JSON.stringify(got))
+  sh('ffmpeg', ['-v', 'error', '-xerror', '-i', hostFile, '-f', 'null', '-'])
+  return { file: done.path, size: done.size, ...got }
+})
+
+await check('download: lossless FLAC passes straight through without ffmpeg', async () => {
+  const r = await ubit(['get', base + '/track.flac', '--no-library', '--json', '-o', '/out'], { allowAddress: onlyLoopback })
+  assert.equal(r.code, 0, JSON.stringify(r.events.at(-1)))
+  const done = r.events.find(e => e.event === 'done')
+  assert.ok(done && done.path.endsWith('.flac'), JSON.stringify(done))
+  const hostFile = path.join(r.out, done.path.slice(5))
+  const got = probe(hostFile)
+  same(got.streams, ['audio:flac'])
+  assert.ok(Math.abs(got.duration - 2) < 0.2, JSON.stringify(got))
+  sh('ffmpeg', ['-v', 'error', '-xerror', '-i', hostFile, '-f', 'null', '-'])
   return { file: done.path, size: done.size, ...got }
 })
 

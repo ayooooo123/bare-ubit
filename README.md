@@ -42,9 +42,9 @@ To stop a run that will not finish, run the CLI as a child process and end it: c
 ## Limits of this build
 
 - One connection at a time (the module has no threads): a full download took 57 s here against 24 s for native `ubit`.
-- No ffmpeg, so `--to mp3/opus/mkv/webm` and WebM sources fail; MP4 and M4A mux natively.
+- No ffmpeg, so re-encoding (`--to mp3/opus/wav/flac` from another codec) fails; MP4, M4A, WebM and MKV stream-copy mux natively (`EBMLMuxer` streams frames without loading whole WebM/MKV tracks into linear memory), and raw MP3/Opus/Ogg/FLAC/WAV/AAC audio passes straight through.
 - No proxy; a configured proxy makes requests fail rather than bypass it.
-- uBit reads a file it muxes whole, so a single track over the memory cap fails.
+- MP4/M4A track parsing reads the track into linear memory, so an MP4 track over the memory cap fails.
 
 ## Build
 
